@@ -237,7 +237,7 @@ void YouTubeExtractor::setRequestUrl(const QUrl &url)
         const QString urlString = url.toString().remove("http:/").remove("https:/").remove("www.");
 
         QRegularExpression re(URL_PATTERN);
-        if(re.errorString() != "no error")
+        if(!re.isValid())
             throw YouTubeExtractorException(YouTubeExtractorError::RegexError, re.errorString());
 
         QRegularExpressionMatch match = re.match(urlString);
