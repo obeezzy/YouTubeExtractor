@@ -22,6 +22,7 @@ YouTubeExtractor::YouTubeExtractor(QObject *parent) :
     QObject(parent)
 {
     setDefaults();
+    m_manager = new QNetworkAccessManager(this);
     connect(m_manager, SIGNAL(finished(QNetworkReply*)), this, SLOT(onFinished(QNetworkReply*)));
 }
 
