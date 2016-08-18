@@ -2,14 +2,28 @@
 #include <QtNetwork>
 #include <QLocale>
 
-/*
- * const QString ytInfoUrl = QStringLiteral("http://www.youtube.com/get_video_info?video_id=") + youtubeID + "&eurl="
-                    + QString(QStringLiteral("https://youtube.googleapis.com/v/") + youtubeID).toUtf8();
- */
+// First
+// /(?:youtube\\.com\\/\\S*(?:(?:\\/e(?:mbed))?\\/|watch\\/?\\?(?:\\S*?&?v\\=))|youtu\\.be\\/)([a-zA-Z0-9_-]{6,11})
+
+// Second
+//http(?:s?):\\/\\/(?:www\\.)?youtu(?:be\\.com\\/watch\\?v=|\\.be\\/)([\\w\\-\\_]*)(&(amp;)?‌​[\\w\\?‌​=]*)?x
+
+// Works with URLs that have http or https in front
+//const QString URL_PATTERN = "http(?:s?):\\/\\/(?:www\\.)(?:youtube\\.com\\/\\S*(?:(?:\\/e(?:mbed))?\\/|watch\\/?\\?(?:\\S*?&?v\\=))|youtu\\.be\\/)([a-zA-Z0-9_-]{6,11})";
+
+
+// Link used to fetch the RTSP URL; The %[number] are placeholders
 const QString FETCH_LINK = "https://www.youtube.com/get_video_info?video_id=%1%2&ps=default&eurl=&gl=US&hl=%3";
 
-const int EXTRACT_ATTRIBUTE = 1234;
-const int DOWNLOAD_ATTRIBUTE = EXTRACT_ATTRIBUTE + 1;
+// Works after "http:/", "https:/" and "www." is removed from the URL
+const QString URL_PATTERN = "/(?:youtube\\.com\\/\\S*(?:(?:\\/e(?:mbed))?\\/|watch\\/?\\?(?:\\S*?&?v\\=))|youtu\\.be\\/)([a-zA-Z0-9_-]{6,11})";
+
+YouTubeExtractor::YouTubeExtractor(QObject *parent) :
+    QObject(parent)
+{
+    setDefaults();
+    connect(m_manager, SIGNAL(finished(QNetworkReply*)), this, SLOT(onFinished(QNetworkReply*)));
+}
 
 YouTubeExtractor::YouTubeExtractor(const QString &videoId, QObject *parent) :
     m_videoId(videoId),
@@ -34,38 +48,67 @@ YouTubeExtractor::YouTubeExtractor(const QUrl &requestUrl, QObject *parent) :
 void YouTubeExtractor::setDefaults()
 {
     m_elFields << "embedded" << "detailpage" << "vevo" << "";
+
     m_preferredVideoQualities << Small << Medium << FLV_360
                               << FLV_480 << _3GP_240 <<_3GP_144
                               << _3GP_144 << MP4_720 << MP4_360
                               << MP4_480 << MP4_1080 << MP4_3072
                               << WEBM_360 << WEBM_720;
-    m_supportedMedia << QMimeDatabase().mimeTypeForName("video/mp4");
+
+    m_supportedMedia << QMimeDatabase().mimeTypeForName("video/mp4")
+                     << QMimeDatabase().mimeTypeForName("video/webm")
+                     << QMimeDatabase().mimeTypeForName("video/3gp");
 }
 
 void YouTubeExtractor::onFinished(QNetworkReply *reply)
 {
-    qDebug() << "YouTubeExtractor: Finished GET!";
-    const int attribute = reply->request().attribute(QNetworkRequest::User).toInt();
-    switch(attribute)
-    {
-    case EXTRACT_ATTRIBUTE:
-    {
-        const QByteArray response = reply->readAll();
-        extractFromReply(QString(response));
+    const Attribute attribute = (Attribute) reply->request().attribute(QNetworkRequest::User).toInt();
 
-        emit finished();
-    }
-        break;
-    case DOWNLOAD_ATTRIBUTE:
-        QFile file(m_thumbnailFilePath);
-        if(!file.open(QIODevice::WriteOnly))
+    try {
+        switch(attribute)
         {
-            qDebug() << "YouTubeExtractor: Failed to write thumbnail to disk.";
-            return;
-        }
+        case ExtractAttribute:
+            if(reply->error() != QNetworkReply::NoError)
+            {
+                throw YouTubeExtractorException(YouTubeExtractorError::NetworkError,
+                                                reply->errorString());
+            }
+            else
+            {
+                const QByteArray response = reply->readAll();
+                extractFromReply(QString(response));
+                emit finished();
+            }
+            break;
+        case DownloadAttribute:
+            if(reply->error() != QNetworkReply::NoError)
+            {
+                throw YouTubeExtractorException(YouTubeExtractorError::NetworkError,
+                                                reply->errorString());
+            }
+            else
+            {
+                QFile file(m_thumbnailFilePath);
+                if(!file.open(QIODevice::WriteOnly))
+                {
+                    throw YouTubeExtractorException(YouTubeExtractorError::FileError,
+                                                    file.errorString());
+                }
 
-        emit thumbnailReady();
-        break;
+                emit thumbnailReady();
+            }
+            break;
+        }
+    }
+    catch(YouTubeExtractorException &e)
+    {
+        qDebug() << "YouTubeExtractor:" << e.text();
+        setLastError(YouTubeExtractorError(e.code(), e.text()));
+
+        if(attribute == ExtractAttribute)
+            emit finished();
+        else if(attribute == DownloadAttribute)
+            emit thumbnailReady();
     }
 }
 
@@ -92,6 +135,11 @@ QList<QMimeType> YouTubeExtractor::supportedMedia() const
     return m_supportedMedia;
 }
 
+QString YouTubeExtractor::videoId() const
+{
+    return m_videoId;
+}
+
 QUrl YouTubeExtractor::videoUrl(YouTubeExtractor::Quality quality) const
 {
     switch(quality)
@@ -105,6 +153,7 @@ QUrl YouTubeExtractor::videoUrl(YouTubeExtractor::Quality quality) const
     case High:
     case Default:
     case Standard:
+    case Any:
         if(!m_videoUrls.MP4_3072.isEmpty())
             return m_videoUrls.MP4_3072;
         if(!m_videoUrls.MP4_1080.isEmpty())
@@ -126,7 +175,6 @@ QUrl YouTubeExtractor::videoUrl(YouTubeExtractor::Quality quality) const
         if(!m_videoUrls._3GP_144.isEmpty())
             return m_videoUrls._3GP_144;
         break;
-
     case FLV_360:
         return m_videoUrls.FLV_360;
         break;
@@ -157,6 +205,16 @@ QUrl YouTubeExtractor::thumbnailUrl(Quality quality) const
     case Standard:
         return m_thumbnailUrls.Standard;
         break;
+    case Any:
+        if(m_thumbnailUrls.Standard.isEmpty())
+            return m_thumbnailUrls.Default;
+        if(m_thumbnailUrls.Default.isEmpty())
+            return m_thumbnailUrls.High;
+        if(m_thumbnailUrls.High.isEmpty())
+            return m_thumbnailUrls.Medium;
+        if(m_thumbnailUrls.Medium.isEmpty())
+            return m_thumbnailUrls.Small;
+        break;
     }
 
     return QUrl();
@@ -172,44 +230,88 @@ void YouTubeExtractor::setVideoId(const QString &videoId)
 
 void YouTubeExtractor::setRequestUrl(const QUrl &url)
 {
-    if(url.isEmpty())
-        return;
+    try {
+        if(url.isEmpty())
+            throw YouTubeExtractorException(YouTubeExtractorError::UrlError, tr("The URL provided is empty."));
 
-    if(url.toString().startsWith("https://www.youtube.com/watch?v="))
-        m_videoId = url.toString().remove("https://www.youtube.com/watch?v=", Qt::CaseInsensitive);
-    else if(url.toString().startsWith("http://www.youtube.com/watch?v="))
-        m_videoId = url.toString().remove("http://www.youtube.com/watch?v=", Qt::CaseInsensitive);
-    else
-        qDebug() << "YouTubeExtractor: Unable to parse request URL.";
+        const QString urlString = url.toString().remove("http:/").remove("https:/").remove("www.");
 
-    m_requestUrl = url;
+        QRegularExpression re(URL_PATTERN);
+        if(re.errorString() != "no error")
+            throw YouTubeExtractorException(YouTubeExtractorError::RegexError, re.errorString());
+
+        QRegularExpressionMatch match = re.match(urlString);
+        if (match.hasMatch())
+            m_videoId = match.captured(1);
+        else
+            throw YouTubeExtractorException(YouTubeExtractorError::RegexError, tr("Unable to parse request URL."));
+
+        m_requestUrl = url;
+    }
+    catch(YouTubeExtractorException &e)
+    {
+        qDebug() << "YouTubeExtractor:" << e.what();
+        setLastError(YouTubeExtractorError(e.code(), e.text()));
+    }
+}
+
+YouTubeExtractorError YouTubeExtractor::lastError() const
+{
+    return m_error;
 }
 
 void YouTubeExtractor::start()
 {
-    qDebug() << "YouTubeExtractor: Started!";
-    QString elField = m_elFields.at(0);
-    m_elFields.removeAll(0);
+    try {
+        if(m_videoId.trimmed().isEmpty())
+            throw YouTubeExtractorException(YouTubeExtractorError::IdError, tr("No video ID provided."));
+        else
+        {
+            QString elField = m_elFields.at(0);
+            m_elFields.removeAll(0);
 
-    if (elField.length() > 0)
-        elField = "&el=" + elField;
+            if (elField.length() > 0)
+                elField = "&el=" + elField;
 
-    QString language = QLocale().languageToString(QLocale().language());
-    const QString link = FETCH_LINK.arg(m_videoId, elField, language);
+            QString language = QLocale().languageToString(QLocale().language());
+            const QString link = FETCH_LINK.arg(m_videoId, elField, language);
 
-    QNetworkRequest request;
-    request.setUrl(QUrl(link));
-    request.setAttribute(QNetworkRequest::User, EXTRACT_ATTRIBUTE);
-    m_manager->get(request);
+            QNetworkRequest request;
+            request.setUrl(QUrl(link));
+            request.setAttribute(QNetworkRequest::User, ExtractAttribute);
+            m_manager->get(request);
+        }
+    }
+    catch(YouTubeExtractorException &e)
+    {
+        qDebug() << "YouTubeExtractor: " << e.text();
+        setLastError(YouTubeExtractorError(e.code(), e.text()));
+        emit finished();
+    }
 }
 
 void YouTubeExtractor::downloadThumbnail(const QString &filePath, YouTubeExtractor::Quality quality)
 {
-    m_thumbnailFilePath = filePath;
-    QNetworkRequest request;
-    request.setAttribute(QNetworkRequest::User, DOWNLOAD_ATTRIBUTE);
-    request.setUrl(thumbnailUrl(quality));
-    m_manager->get(request);
+    try {
+        if(thumbnailUrl(Any).isEmpty())
+            throw YouTubeExtractorException(YouTubeExtractorError::UrlError, tr("No thumbnail URL available."));
+        else if(filePath.trimmed().isEmpty())
+            throw YouTubeExtractorException(YouTubeExtractorError::FileError, tr("The file path provided is empty."));
+        else
+        {
+            m_thumbnailFilePath = filePath;
+            QNetworkRequest request;
+            request.setAttribute(QNetworkRequest::User, DownloadAttribute);
+            request.setUrl(thumbnailUrl(quality));
+            m_manager->get(request);
+        }
+    }
+    catch(YouTubeExtractorException &e)
+    {
+        qDebug() << "YouTubeExtractor: " << e.what();
+        setLastError(YouTubeExtractorError(e.code(), e.text()));
+        emit thumbnailReady();
+    }
 }
 
 bool YouTubeExtractor::isSupportedMedia(const QString &mime)
@@ -252,8 +354,6 @@ QMap<QString, QString> YouTubeExtractor::getMapFromQuery(const QString &query)
 void YouTubeExtractor::extractFromReply(const QString &html)
 {
     QMap<QString, QString> video = getMapFromQuery(html.toUtf8());
-
-    QUrl videoUrl;
 
     // Get the url encoded format stream map first
     if(video.contains("url_encoded_fmt_stream_map"))
@@ -300,7 +400,6 @@ void YouTubeExtractor::extractFromReply(const QString &html)
             {
                 const QString streamLink = streamLinks.value(quality);
                 setVideoUrl(QUrl(streamLink.toUtf8()), quality);
-                break;
             }
         }
 
@@ -315,7 +414,7 @@ void YouTubeExtractor::extractFromReply(const QString &html)
     }
 
     else
-        qDebug() << "Failed to fetch video.";
+        throw YouTubeExtractorException(YouTubeExtractorError::ParseError, tr("Failed to fetch video."));
 }
 
 void YouTubeExtractor::setVideoUrl(const QUrl &url, YouTubeExtractor::Quality quality)
@@ -390,4 +489,9 @@ void YouTubeExtractor::setThumbnailUrl(const QUrl &url, YouTubeExtractor::Qualit
         m_thumbnailUrls.Standard = url;
         break;
     }
+}
+
+void YouTubeExtractor::setLastError(YouTubeExtractorError e)
+{
+    m_error = e;
 }

@@ -5,6 +5,7 @@
 #include <QtAVWidgets>
 #include <QDebug>
 #include <QUrlQuery>
+#include <QMimeDatabase>
 
 const QString youtubeLink = "https://www.youtube.com/watch?v=bYo885OoWtY";
 const QString youtubeID = "bYo885OoWtY";
@@ -18,23 +19,30 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->setupUi(this);
 
     // Init renderer;
-    mRenderer = new GLWidgetRenderer2(this);
-    setCentralWidget(mRenderer);
+    m_renderer = new GLWidgetRenderer2(this);
+    setCentralWidget(m_renderer);
 
     // Init player
-    mPlayer = new AVPlayer(this);
-    mPlayer->setRenderer(mRenderer);
+    m_player = new AVPlayer(this);
+    m_player->setRenderer(m_renderer);
 
     // Init extractor
-    extractor = new YouTubeExtractor(QUrl(youtubeLink), this);
-    connect(extractor, &YouTubeExtractor::finished, [this]()
+    m_extractor = new YouTubeExtractor(QUrl(youtubeLink), this);
+    connect(m_extractor, &YouTubeExtractor::finished, [this]()
     {
-        mPlayer->setFile(extractor->videoUrl(YouTubeExtractor::High).toString());
-        mPlayer->play();
+        if(!m_extractor->lastError().isValid())
+        {
+            m_player->setFile(m_extractor->videoUrl(YouTubeExtractor::Any).toString());
+            m_player->play();
+        }
+        else
+        {
+            qDebug() << "YouTubeExtractor:" << m_extractor->lastError().text();
+        }
     });
 
     // Start extracting
-    extractor->start();
+    m_extractor->start();
 }
 
 MainWindow::~MainWindow()

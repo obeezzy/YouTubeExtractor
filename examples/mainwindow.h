@@ -5,11 +5,6 @@
 #include <QtAV>
 #include <QtAVWidgets>
 
-class VlcInstance;
-class VlcMediaPlayer;
-class VlcMedia;
-class VlcWidgetVideo;
-class QNetworkAccessManager;
 class YouTubeExtractor;
 
 namespace Ui {
@@ -26,15 +21,9 @@ public:
 
 private:
     Ui::MainWindow *ui;
-    QNetworkAccessManager *manager;
-    YouTubeExtractor *extractor;
-    QtAV::AVPlayer *mPlayer;
-    QtAV::GLWidgetRenderer2 *mRenderer;
-
-    VlcInstance *mInstance;
-    VlcMediaPlayer *mMediaPlayer;
-    VlcMedia *mMedia;
-    VlcWidgetVideo *mVideoWidget;
+    YouTubeExtractor *m_extractor;
+    QtAV::AVPlayer *m_player;
+    QtAV::GLWidgetRenderer2 *m_renderer;
 };
 
 #endif // MAINWINDOW_H

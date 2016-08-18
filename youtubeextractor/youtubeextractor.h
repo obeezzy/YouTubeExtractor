@@ -9,7 +9,6 @@ class QNetworkAccessManager;
 class QNetworkReply;
 
 struct VideoUrls {
-public:
     VideoUrls() {}
     VideoUrls(const QUrl &Small, const QUrl &Medium, const QUrl &FLV_360,
               const QUrl &FLV_480, const QUrl &_3GP_240, const QUrl &_3GP_144,
@@ -66,6 +65,48 @@ struct ThumbnailUrls {
     QUrl Small, Medium, High, Default, Standard;
 };
 
+class YouTubeExtractorError {
+public:
+    enum Code {Unknown = -1, NetworkError, FileError, UrlError, IdError, RegexError, ParseError};
+    YouTubeExtractorError() :
+        m_code(Unknown) {}
+    YouTubeExtractorError(Code code, const QString &text) :
+        m_code(code), m_text(text) {}
+
+    YouTubeExtractorError operator =(YouTubeExtractorError &other)
+    {
+        m_code = other.code();
+        m_text = other.text();
+
+        return *this;
+    }
+
+    Code code() const { return m_code; }
+    QString text() const { return m_text; }
+    bool isValid() { return !m_text.trimmed().isEmpty(); }
+private:
+    Code m_code;
+    QString m_text;
+};
+
+class YouTubeExtractorException : std::exception {
+public:
+    YouTubeExtractorException() :
+        m_code(YouTubeExtractorError::Unknown) {}
+    YouTubeExtractorException(YouTubeExtractorError::Code code, const QString &text) :
+        m_code(code), m_text(text) {}
+
+    virtual ~YouTubeExtractorException() {}
+
+    YouTubeExtractorError::Code code() const { return m_code; }
+    QString text() const { return m_text; }
+
+    virtual const char *what() const { return m_text.toStdString().c_str(); }
+private:
+    YouTubeExtractorError::Code m_code;
+    QString m_text;
+};
+
 class YouTubeExtractor : public QObject
 {
     Q_OBJECT
@@ -76,6 +117,7 @@ public:
         High = -1,
         Default = -2,
         Standard = -3,
+        Any = -4,
 
         FLV_360 = 5,
         FLV_480 = 6,    // unsure
@@ -90,6 +132,12 @@ public:
         WEBM_720 = 45
     };
 
+    enum Attribute {
+        ExtractAttribute,
+        DownloadAttribute
+    };
+
+    explicit YouTubeExtractor(QObject *parent = 0);
     explicit YouTubeExtractor(const QString &videoId, QObject *parent = 0);
     explicit YouTubeExtractor(const QUrl &requestUrl, QObject *parent = 0);
 
@@ -100,11 +148,15 @@ public:
     void setSupportedMedia(const QList<QMimeType> &);
     QList<QMimeType> supportedMedia() const;
 
+    QString videoId() const;
+
     QUrl videoUrl(Quality) const;
     QUrl thumbnailUrl(Quality) const;
 
     void setVideoId(const QString &videoId);
     void setRequestUrl(const QUrl &url);
+
+    YouTubeExtractorError lastError() const;
 public slots:
     void start();
 
@@ -125,14 +177,16 @@ private:
     QList<QMimeType> m_supportedMedia;
     QString m_thumbnailFilePath;
     QUrl m_requestUrl;
+    YouTubeExtractorError m_error;
 
     void setDefaults();
     QMap<QString, QString> getMapFromQuery(const QString &query);
 
-    void extractFromReply(const QString &html);
+    void extractFromReply(const QString &html) throw (YouTubeExtractorException);
 
     void setVideoUrl(const QUrl &url, Quality);
     void setThumbnailUrl(const QUrl &url, Quality);
+    void setLastError(YouTubeExtractorError e);
 };
 
 #endif // YOUTUBEEXTRACTOR_H
