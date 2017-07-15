@@ -415,7 +415,7 @@ void YouTubeExtractor::extractFromReply(const QString &html)
     }
 
     else
-        throw YouTubeExtractorException(YouTubeExtractorError::ParseError, tr("Failed to fetch video."));
+        throw YouTubeExtractorException(YouTubeExtractorError::ParseError, QString(video.value("reason")).replace("+", " "));
 }
 
 void YouTubeExtractor::setVideoUrl(const QUrl &url, YouTubeExtractor::Quality quality)
