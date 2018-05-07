@@ -6,13 +6,13 @@ The easiest way to use this library in your project is to copy the "youtubeextra
 
 Using this library in code is straightforward. Simply create an instance of the class YouTubeExtractor and pass in the video ID or the YouTube URL of choice into the YouTubeExtractor constructor.
 
-    // Assuming YouTubeExtractor has been defined in the .h file
+    // Assuming YouTubeExtractor has been declared in the .h file
     extractor = new YouTubeExtractor(QUrl("https://www.youtube.com/watch?v=tPEE9ZwTmy0"));
     // or extractor = new YouTubeExtractor("tPEE9ZwTmy0");
     
     // Using C++11
     // Once the YouTubeExtractor instance has fetched from the YouTube URL, run this slot.
-    connect(extractor, &YouTubeExtractor::finished, []()
+    connect(extractor, &YouTubeExtractor::finished, this, []()
     {
       // Are there any errors?
       if(extractor->lastError().isValid())
